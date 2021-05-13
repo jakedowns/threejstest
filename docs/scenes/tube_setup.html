@@ -915,7 +915,19 @@
 						speed = speed+0.25;
 					}
 				}
-			})
+			});
+			window.addEventListener('touchstart', function(){
+				dir = dir*-1; //switch direction
+				if (speed == 0){
+					speed = .5;
+				}
+				else{
+					const endZone = 30;
+					if( (lightIndex <= endZone) || ((100-lightIndex) <= endZone) ){
+						speed = speed+0.25;
+					}
+				}
+			});
 
 			render();
 
