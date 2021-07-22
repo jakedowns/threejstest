@@ -42,6 +42,7 @@
 				PointLight,
 				Scene,
 				Shape,
+                SphereGeometry,
 				TubeGeometry,
 				Vector2,
 				Vector3,
@@ -52,7 +53,9 @@
 			import { GUI } from '../../examples/jsm/libs/dat.gui.module.js';
 			import { OrbitControls } from '../../examples/jsm/controls/OrbitControls.js';
 
-			const twoPi = Math.PI * 2;
+            let mouse_pos_3d = new Vector3();
+
+            const twoPi = Math.PI * 2;
 
 			class CustomSinCurve extends Curve {
 
@@ -66,9 +69,14 @@
 
 				getPoint( t, optionalTarget = new Vector3() ) {
 
-					const tx = t * 3 - 1.5;
-					const ty = Math.sin( 2 * Math.PI * t );
-					const tz = 0;
+					let tx = t * 3 - 1.5;
+					let ty = Math.sin( 2 * Math.PI * t );
+					let tz = 0;
+
+                    // if(t === 0 && mouse_pos_3d){
+                    //     tx = mouse_pos_3d.x
+                    //     ty = mouse_pos_3d.y
+                    // }
 
 					return optionalTarget.set( tx, ty, tz ).multiplyScalar( this.scale );
 
@@ -90,15 +98,31 @@
 
 			const x = 0, y = 0;
 
+            const data = {
+                segments: 20,
+                radius: 2,
+                radialSegments: 8
+            };
+
+            function generateGeometry(path) {
+
+                updateGroupGeometry( group,
+                    new TubeGeometry( path, data.segments, data.radius, data.radialSegments, false )
+                );
+
+            }
+
+            function reactiveTube() {
+                const path = new CustomSinCurve( 10 );
+                tubePath = path;
+                generateGeometry(path);
+            }
+
 			const guis = {
 
 				TubeGeometry: function ( mesh ) {
 
-					const data = {
-						segments: 20,
-						radius: 2,
-						radialSegments: 8
-					};
+
 
 					const path = new CustomSinCurve( 10 );
 					tubePath = path;
@@ -129,19 +153,6 @@
 			var speed = 1;
 
 			function updateLight(){
-				lightIndex = (lightIndex+(dir*speed));
-				if (lightIndex >= 100){
-					//dir = -1;
-					speed = 0;
-					lightIndex = 100;
-				}
-				else if (lightIndex <= 0){
-					//dir = 1;
-					speed = 0;
-					lightIndex = 0;
-				}
-
-				const pos = tubePath.getPoint(lightIndex/100);
                 if(current_light_color === PURPLE_HEX){
                     lights[0].intensity = 5;
                     lights[3].intensity = 0;
@@ -149,12 +160,34 @@
                     lights[3].intensity = 5;
                     lights[0].intensity = 0;
                 }
+
+				lightIndex = (lightIndex+(dir*speed));
+				if (lightIndex >= 100){
+					//dir = -1;
+					speed = 0;
+					lightIndex = 100;
+                    lights[0].intensity = 0;
+                    lights[3].intensity = 0;
+				}
+				else if (lightIndex <= 0){
+					//dir = 1;
+					speed = 0;
+					lightIndex = 0;
+                    lights[0].intensity = 0;
+                    lights[3].intensity = 0;
+				}
+
+				const pos = tubePath.getPoint(lightIndex/100);
+
 				lights[0].position.set(pos.x, pos.y, pos.z);
                 lights[3].position.set(pos.x, pos.y, pos.z);
 			}
 
             function updateTube(){
-
+                if(mouse_pos_3d){
+                    // sphere.position.set(mouse_pos_3d.x,mouse_pos_3d.y,mouse_pos_3d.z)
+                    reactiveTube(); // todo: only regenerate if mouse moved on x or y
+                }
             }
 
 			const gui = new GUI();
@@ -178,14 +211,15 @@
 			const geometry = new BufferGeometry();
 			geometry.setAttribute( 'position', new Float32BufferAttribute( [], 3 ) );
 
-			const lineMaterial = new LineBasicMaterial( { color: 0xffffff, transparent: true, opacity: 0.25 } );
-			const meshMaterial = new MeshLambertMaterial( { color: 0xffffff, emissive: 0x111111, transparent:true,side:BackSide, flatShading: false, opacity:1 } );
+			// const lineMaterial = new LineBasicMaterial( { color: 0xffffff, transparent: true, opacity: 0.25 } );
+			const meshMaterial = new MeshLambertMaterial( { color: 0xffffff, emissive: 0x111111, transparent:true, side:BackSide, flatShading: false, opacity:1 } );
 			//const meshMaterial = new MeshPhongMaterial( { color: 0xffffff, emissive: 0x111111, transparent:true, flatShading: false, opacity:1 } );
 
-			group.add( new LineSegments( geometry, lineMaterial ) );
+			group.add( new LineSegments( geometry, meshMaterial ) );
 			group.add( new Mesh( geometry, meshMaterial ) );
 
-			const options = guis['TubeGeometry']();
+            guis.TubeGeometry(group);
+			const options = {};
 
 			scene.add( group );
 
@@ -207,23 +241,26 @@
             lights[ 3 ] = new PointLight( TEAL_HEX, 5, 5, 2);
 
 			lights[ 0 ].position.set( 0, 200, 0 );
-			if(tubePath){
-				var pos = tubePath.getPoint(0);
-				lights[1].position.set(pos.x, pos.y, pos.z);
+            var pos = tubePath.getPoint(0);
+            lights[1].position.set(pos.x, pos.y, pos.z);
 
-				pos = tubePath.getPoint(1);
-				lights[2].position.set(pos.x, pos.y, pos.z);
+            pos = tubePath.getPoint(1);
+            lights[2].position.set(pos.x, pos.y, pos.z);
 
-			}
 			scene.add( lights[ 0 ] );
 			scene.add( lights[ 1 ] );
 			scene.add( lights[ 2 ] );
 			scene.add( lights[ 3 ] );
 
+            // test sphere
+            // const sphereGeo = new SphereGeometry( 1,5, 5 );
+			// const material = new MeshPhongMaterial( {color: 0x9b42f5, emissive: 0x111111} );
+			// const sphere = new Mesh( sphereGeo, material );
+			// scene.add(sphere);
 
 			function render() {
-				updateLight();
                 updateTube();
+				updateLight();
 				requestAnimationFrame( render );
 
 				if ( ! options.fixed ) {
@@ -248,20 +285,28 @@
                 dir = dir*-1; //switch direction
                 // switch color
                 current_light_color = current_light_color === PURPLE_HEX ? TEAL_HEX : PURPLE_HEX;
+                const endZone = 30;
 				if (speed == 0){
 					speed = .5;
 				}
 				else{
-					const endZone = 30;
 					if( (lightIndex <= endZone) || ((100-lightIndex) <= endZone) ){
-						speed = speed+0.25;
-					}
+						speed = speed+0.1;
+					}else{
+                        speed = 0;
+                        if(current_light_color === PURPLE_HEX){
+                            lightIndex = 100;
+                        }else{
+                            lightIndex = 0;
+                        }
+                    }
 				}
             }
             window.addEventListener('click', onInput);
             window.addEventListener('touchstart', onInput);
 
             let mouse = {x:0,y:0}
+
             function onMouseMove(e){
                 mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
                 mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
@@ -269,8 +314,7 @@
                 vector.unproject( camera );
                 var dir = vector.sub( camera.position ).normalize();
                 var distance = - camera.position.z / dir.z;
-                var pos = camera.position.clone().add( dir.multiplyScalar( distance ) );
-
+                mouse_pos_3d = camera.position.clone().add( dir.multiplyScalar( distance ) );
             }
             window.addEventListener('mousemove', onMouseMove);
 

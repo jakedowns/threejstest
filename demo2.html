@@ -1,0 +1,728 @@
+
+<html lang="en">
+	<head>
+		<title>Amjs softbody rope demo</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<link type="text/css" rel="stylesheet" href="main.css">
+		<style>
+			body {
+				color: #333;
+                background: #000;
+			}
+            #score {
+                color: #fff;
+                background: #000;
+                position: fixed;
+                width: 100%;
+                height: 30px;
+                top: 0;
+                left: 0;
+                right: 0;
+                text-align: center;
+                font-family: sans-serif;
+            }
+		</style>
+	</head>
+	<body>
+    <div id="score">0</div>
+	<div id="container"></div>
+
+	<script src="js/libs/ammo.wasm.js"></script>
+
+	<script type="module">
+		import * as THREE from '../../build/three.module.js';
+
+        import {
+            Vector2,
+            Vector3,
+        } from '../../build/three.module.js';
+
+		import Stats from '../examples/jsm/libs/stats.module.js';
+
+		import { OrbitControls } from '../examples/jsm/controls/OrbitControls.js';
+
+        // Color Variables
+        const AMBER_HEX = 0xfce803;
+        const TEAL_HEX = 0x0af3ff;
+        const PURPLE_HEX = 0x9b42f5
+
+        // Input Variables
+        let mouse = new Vector2();
+        let mouse_pos_3d = new Vector3(-3,6,0);
+
+		// Graphics variables
+		let container, stats;
+		let camera, controls, scene, renderer;
+		let textureLoader;
+		const clock = new THREE.Clock();
+
+		// Physics variables
+        const FLAGS = { CF_KINEMATIC_OBJECT: 2 }
+        const STATE = { DISABLE_DEACTIVATION : 4 }
+		const gravityConstant = - 9.8;
+		let collisionConfiguration;
+		let dispatcher;
+		let broadphase;
+		let solver;
+		let softBodySolver;
+		let physicsWorld;
+		const rigidBodies = [];
+		const margin = 0.05;
+		let hinge;
+		let rope;
+		let transformAux1;
+        let ball;
+        let ballPlayer2;
+        let ballPlayer2Proxy;
+
+        // Gameplay Variables
+        let player1Score = 0;
+        let player2Score = 0;
+        let bestStreak = 0;
+        let currentStreak = 0;
+        var dir = 1;
+        var speed = 1;
+        let current_light_color = PURPLE_HEX;
+        let lights = [];
+        var lightIndex = 0;
+
+		Ammo().then( function ( AmmoLib ) {
+
+			Ammo = AmmoLib;
+
+			init();
+			animate();
+
+		} );
+
+		function init() {
+
+			initGraphics();
+
+			initPhysics();
+
+			createObjects();
+
+			initInput();
+
+		}
+
+		function initGraphics() {
+
+			container = document.getElementById( 'container' );
+
+			camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.2, 2000 );
+
+			scene = new THREE.Scene();
+			scene.background = new THREE.Color( 0x333333 );
+
+			camera.position.set( - 7, 5, 8 );
+
+			renderer = new THREE.WebGLRenderer();
+			renderer.setPixelRatio( window.devicePixelRatio );
+			renderer.setSize( window.innerWidth, window.innerHeight );
+			renderer.shadowMap.enabled = true;
+			container.appendChild( renderer.domElement );
+
+			controls = new OrbitControls( camera, renderer.domElement );
+			controls.target.set( 0, 2, 0 );
+			controls.update();
+
+			textureLoader = new THREE.TextureLoader();
+
+			const ambientLight = new THREE.AmbientLight( 0x404040 );
+			scene.add( ambientLight );
+
+			const light = new THREE.DirectionalLight( 0xffffff, 0.5 );
+			light.position.set( - 10, 10, 5 );
+			light.castShadow = true;
+			const d = 10;
+			light.shadow.camera.left = - d;
+			light.shadow.camera.right = d;
+			light.shadow.camera.top = d;
+			light.shadow.camera.bottom = - d;
+
+			light.shadow.camera.near = 2;
+			light.shadow.camera.far = 50;
+
+			light.shadow.mapSize.x = 1024;
+			light.shadow.mapSize.y = 1024;
+
+			scene.add( light );
+
+			stats = new Stats();
+			stats.domElement.style.position = 'absolute';
+			stats.domElement.style.top = '0px';
+			container.appendChild( stats.domElement );
+
+			//
+
+			window.addEventListener( 'resize', onWindowResize );
+
+		}
+
+		function initPhysics() {
+
+			// Physics configuration
+
+			collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();
+			dispatcher = new Ammo.btCollisionDispatcher( collisionConfiguration );
+			broadphase = new Ammo.btDbvtBroadphase();
+			solver = new Ammo.btSequentialImpulseConstraintSolver();
+			softBodySolver = new Ammo.btDefaultSoftBodySolver();
+			physicsWorld = new Ammo.btSoftRigidDynamicsWorld( dispatcher, broadphase, solver, collisionConfiguration, softBodySolver );
+			physicsWorld.setGravity( new Ammo.btVector3( 0, gravityConstant, 0 ) );
+			physicsWorld.getWorldInfo().set_m_gravity( new Ammo.btVector3( 0, gravityConstant, 0 ) );
+
+			transformAux1 = new Ammo.btTransform();
+
+		}
+
+        function updateTubeGroup(geometry){
+            tube_group.children[0].geometry.dispose();
+            tube_group.children[1].geometry.dispose();
+
+            // tube_group.children[0].geometry = new THREE.WireframeGeometry( geometry );
+            tube_group.children[1].geometry = geometry;
+        }
+
+        function regenerateTubeGeometry(){
+            tube_curve = new THREE.CatmullRomCurve3(ropePoints)
+            return new THREE.TubeGeometry(
+                tube_curve,
+                tube_options.segments,
+                tube_options.radius,
+                tube_options.radialSegments,
+                false
+            )
+        }
+
+        const ballRadius = 0.3; //0.6;
+        let ropePositions = [];
+        let ropeIndices = [];
+        let ropePoints = [];
+        let tube_options = {
+            tube_length: 10,
+            segments: 40,
+            radius: 0.5,
+            radialSegments: 8
+        }
+        let tube_curve;
+        const tube_group = new THREE.Group()
+
+		function createObjects() {
+
+			const pos = new THREE.Vector3();
+			const quat = new THREE.Quaternion();
+
+			// Ground
+			pos.set( 0, - 0.5, 0 );
+			quat.set( 0, 0, 0, 1 );
+			const ground = createParalellepiped( 40, 1, 40, 0, pos, quat, new THREE.MeshPhongMaterial( { color: 0x444444 } ) );
+			ground.castShadow = true;
+			ground.receiveShadow = true;
+			textureLoader.load( "textures/grid.png", function ( texture ) {
+
+				texture.wrapS = THREE.RepeatWrapping;
+				texture.wrapT = THREE.RepeatWrapping;
+				texture.repeat.set( 40, 40 );
+				ground.material.map = texture;
+				ground.material.needsUpdate = true;
+
+			} );
+
+
+			// Ball
+			const ballMass = 0; //1.2;
+
+			ball = new THREE.Mesh( new THREE.SphereGeometry( ballRadius, 20, 20 ), new THREE.MeshPhongMaterial( { color: PURPLE_HEX } ) );
+			ball.castShadow = true;
+			ball.receiveShadow = true;
+			const ballShape = new Ammo.btSphereShape( ballRadius );
+			ballShape.setMargin( margin );
+			pos.set( -3, 6, 0 );
+			quat.set( 0, 0, 0, 1 );
+			createRigidBody( ball, ballShape, ballMass, pos, quat );
+			ball.userData.physicsBody.setFriction( 0.5 );
+            ball.userData.physicsBody.setCollisionFlags(FLAGS.CF_KINEMATIC_OBJECT)
+            ball.userData.physicsBody.setActivationState( STATE.DISABLE_DEACTIVATION );
+
+            // Ball Player 2
+            ballPlayer2 = new THREE.Mesh(
+                new THREE.SphereGeometry( ballRadius, 20, 20 ),
+                new THREE.MeshPhongMaterial( { color: TEAL_HEX } )
+            );
+            ballPlayer2.castShadow = true;
+			ballPlayer2.receiveShadow = true;
+            const ballPlayer2Shape = new Ammo.btSphereShape( ballRadius );
+            ballPlayer2Shape.setMargin( margin );
+			pos.set( 3, 6, 0 );
+			quat.set( 0, 0, 0, 1 );
+            createRigidBody( ballPlayer2, ballPlayer2Shape, ballMass, pos, quat );
+            ballPlayer2.userData.physicsBody.setFriction( 0.5 );
+            ballPlayer2.userData.physicsBody.setCollisionFlags(FLAGS.CF_KINEMATIC_OBJECT)
+            ballPlayer2.userData.physicsBody.setActivationState( STATE.DISABLE_DEACTIVATION );
+
+            ballPlayer2Proxy = new THREE.Mesh(
+                new THREE.SphereGeometry( ballRadius, 20, 20 ),
+                new THREE.MeshPhongMaterial( { color: TEAL_HEX } )
+            );
+            ballPlayer2Proxy.castShadow = true;
+			ballPlayer2Proxy.receiveShadow = true;
+            const ballPlayer2ProxyShape = new Ammo.btSphereShape( ballRadius );
+            ballPlayer2ProxyShape.setMargin( margin );
+            pos.set( 3, 6, 0 );
+			quat.set( 0, 0, 0, 1 );
+            createRigidBody( ballPlayer2Proxy, ballPlayer2ProxyShape, ballMass, pos, quat );
+            ballPlayer2Proxy.userData.physicsBody.setFriction( 0.5 );
+            ballPlayer2Proxy.userData.physicsBody.setCollisionFlags(FLAGS.CF_KINEMATIC_OBJECT)
+            ballPlayer2Proxy.userData.physicsBody.setActivationState( STATE.DISABLE_DEACTIVATION );
+
+			// The rope
+			// Rope graphic object
+			const ropeNumSegments = tube_options.segments;
+			const ropeLength = tube_options.tube_length;
+			const ropeMass = 1;
+			const ropePos = ball.position.clone();
+			ropePos.y -= ballRadius;
+
+			const segmentLength = ropeLength / ropeNumSegments;
+			const ropeGeometry = new THREE.BufferGeometry();
+			const ropeMaterial = new THREE.LineBasicMaterial( { color: 0xffffff, linewidth: 0 } );
+
+			for ( let i = 0; i < ropeNumSegments + 1; i ++ ) {
+                let x = 0; //ropePos.x + (i * segmentLength);
+                let y = 0; //ropePos.y + (i * segmentLength);
+                let z = 0; //ropePos.z
+                // if(i == ropeNumSegments){
+                //     x = ballPlayer2.position.x
+                //     y = ballPlayer2.position.y - ballRadius
+                // }
+                let vec3 = new THREE.Vector3(x, y, z);
+				ropePositions.push( x, y, z );
+                ropePoints.push(vec3)
+			}
+
+			for ( let i = 0; i < ropeNumSegments; i ++ ) {
+
+				ropeIndices.push( i, i + 1 );
+
+			}
+
+			ropeGeometry.setIndex( new THREE.BufferAttribute( new Uint16Array( ropeIndices ), 1 ) );
+			ropeGeometry.setAttribute( 'position', new THREE.BufferAttribute( new Float32Array( ropePositions ), 3 ) );
+			ropeGeometry.computeBoundingSphere();
+			rope = new THREE.LineSegments( ropeGeometry, ropeMaterial );
+			rope.castShadow = true;
+			rope.receiveShadow = true;
+			// scene.add( rope );
+
+			// Rope physic object
+			const softBodyHelpers = new Ammo.btSoftBodyHelpers();
+			const ropeStart = new Ammo.btVector3( ropePos.x, ropePos.y, ropePos.z );
+			const ropeEnd = new Ammo.btVector3( ropePos.x, ropePos.y + ropeLength, ropePos.z );
+			const ropeSoftBody = softBodyHelpers.CreateRope( physicsWorld.getWorldInfo(), ropeStart, ropeEnd, ropeNumSegments - 1, 0 );
+            const sbConfig = ropeSoftBody.get_m_cfg();
+            // Friction
+            // sbConfig.set_kDF( 1 );
+            // Damping
+            sbConfig.set_kDP( 0.1 );
+            // Pressure
+            // sbConfig.set_kPR( 0.1 );
+            var physMat0 = ropeSoftBody.get_m_materials().at( 0 );
+            // Stiffness
+            var stiffness = 1;
+            physMat0.set_m_kLST( stiffness );
+            physMat0.set_m_kAST( stiffness );
+            physMat0.set_m_kVST( stiffness );
+			sbConfig.set_viterations( 10 );
+			sbConfig.set_piterations( 10 );
+			ropeSoftBody.setTotalMass( ropeMass, false );
+			Ammo.castObject( ropeSoftBody, Ammo.btCollisionObject ).getCollisionShape().setMargin( tube_options.radius );
+			physicsWorld.addSoftBody( ropeSoftBody, 1, - 1 );
+			rope.userData.physicsBody = ropeSoftBody;
+			// Disable deactivation
+			ropeSoftBody.setActivationState( 4 );
+
+            // Rope as Tube
+            scene.add(tube_group);
+            const tube_material = new THREE.MeshLambertMaterial(
+                {
+                    color: 0xffffff,
+                    emissive: 0x111111,
+                    // transparent:true,
+                    side: THREE.BackSide,
+                    // opacity:0.5,
+                }
+            );
+            const tube_geometry = regenerateTubeGeometry()
+
+            //wireframe
+            const tube_geo_wire = new THREE.WireframeGeometry( tube_geometry );
+            const tube_wire_mesh = new THREE.LineSegments( tube_geo_wire, tube_material )
+            tube_group.add(tube_wire_mesh)
+
+            // solid
+            const tube_mesh = new THREE.Mesh( tube_geometry, tube_material )
+            tube_mesh.castShadow = true;
+            tube_group.add(tube_mesh)
+
+			// Glue the rope extremes to the handles
+			const influence = 1;
+			ropeSoftBody.appendAnchor( 0, ball.userData.physicsBody, true, influence );
+
+            // player 2 handle
+			ropeSoftBody.appendAnchor( ropeNumSegments, ballPlayer2.userData.physicsBody, true, influence );
+
+            // Game Lights
+            lights = [];
+
+            let current_light_color = PURPLE_HEX;
+
+            // player light
+			lights[ 0 ] = new THREE.PointLight(PURPLE_HEX, 5, 5, 2 );
+
+            // amber goal lights
+			lights[ 1 ] = new THREE.PointLight( AMBER_HEX, .5, 10,2 );
+			lights[ 2 ] = new THREE.PointLight( AMBER_HEX, .5, 10,2 );
+
+            // player 2 colored light
+            lights[ 3 ] = new THREE.PointLight( TEAL_HEX, 5, 5, 2);
+
+			lights[ 0 ].position.set( 0, 200, 0 );
+            pos.set(tube_curve.getPoint(0).x,tube_curve.getPoint(0).y,tube_curve.getPoint(0).z);
+            lights[1].position.set(pos.x, pos.y, pos.z);
+
+            pos.set(tube_curve.getPoint(1).x,tube_curve.getPoint(1).y,tube_curve.getPoint(1).z);
+            lights[2].position.set(pos.x, pos.y, pos.z);
+
+			scene.add( lights[ 0 ] );
+			scene.add( lights[ 1 ] );
+			scene.add( lights[ 2 ] );
+			scene.add( lights[ 3 ] );
+		}
+
+		function createParalellepiped( sx, sy, sz, mass, pos, quat, material ) {
+
+			const threeObject = new THREE.Mesh( new THREE.BoxGeometry( sx, sy, sz, 1, 1, 1 ), material );
+			const shape = new Ammo.btBoxShape( new Ammo.btVector3( sx * 0.5, sy * 0.5, sz * 0.5 ) );
+			shape.setMargin( margin );
+
+			createRigidBody( threeObject, shape, mass, pos, quat );
+
+			return threeObject;
+
+		}
+
+		function createRigidBody( threeObject, physicsShape, mass, pos, quat ) {
+
+			threeObject.position.copy( pos );
+			threeObject.quaternion.copy( quat );
+
+			const transform = new Ammo.btTransform();
+			transform.setIdentity();
+			transform.setOrigin( new Ammo.btVector3( pos.x, pos.y, pos.z ) );
+			transform.setRotation( new Ammo.btQuaternion( quat.x, quat.y, quat.z, quat.w ) );
+			const motionState = new Ammo.btDefaultMotionState( transform );
+
+			const localInertia = new Ammo.btVector3( 0, 0, 0 );
+			physicsShape.calculateLocalInertia( mass, localInertia );
+
+			const rbInfo = new Ammo.btRigidBodyConstructionInfo( mass, motionState, physicsShape, localInertia );
+			const body = new Ammo.btRigidBody( rbInfo );
+
+			threeObject.userData.physicsBody = body;
+
+			scene.add( threeObject );
+
+			if ( mass > 0 ) {
+
+				rigidBodies.push( threeObject );
+
+				// Disable deactivation
+				body.setActivationState( 4 );
+
+			}
+
+			physicsWorld.addRigidBody( body );
+
+		}
+
+		function createRandomColor() {
+
+			return Math.floor( Math.random() * ( 1 << 24 ) );
+
+		}
+
+		function createMaterial() {
+
+			return new THREE.MeshPhongMaterial( { color: createRandomColor() } );
+
+		}
+
+        let mouse_did_move = false;
+        function onMouseMove(e){
+                mouse_did_move = true
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+                var vector = new Vector3(mouse.x, mouse.y, 0.5);
+                vector.unproject( camera );
+                var dir = vector.sub( camera.position ).normalize();
+                var distance = - camera.position.z / dir.z;
+                mouse_pos_3d = camera.position.clone().add( dir.multiplyScalar( distance ) );
+            }
+
+		function initInput() {
+
+			// window.addEventListener( 'keydown', function ( event ) {
+
+			// 	// switch ( event.keyCode ) {
+
+			// 	// 	// Q
+			// 	// 	case 81:
+			// 	// 		armMovement = 1;
+			// 	// 		break;
+
+			// 	// 	// A
+			// 	// 	case 65:
+			// 	// 		armMovement = - 1;
+			// 	// 		break;
+
+			// 	// }
+
+			// } );
+
+			// window.addEventListener( 'keyup', function () {
+
+			// 	// armMovement = 0;
+
+			// } );
+
+            window.addEventListener('mousemove', onMouseMove);
+
+            window.addEventListener('click', onInput);
+            window.addEventListener('touchstart', onInput);
+
+		}
+
+		function onWindowResize() {
+
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+
+			renderer.setSize( window.innerWidth, window.innerHeight );
+
+		}
+
+		function animate() {
+
+			requestAnimationFrame( animate );
+
+			render();
+			stats.update();
+
+		}
+
+		function render() {
+
+			const deltaTime = clock.getDelta();
+            const elapsedTime = clock.getElapsedTime()
+
+			updateMain( deltaTime, elapsedTime );
+
+			renderer.render( scene, camera );
+
+		}
+
+        function getRandomArbitrary(min,max){
+            return Math.random() * (max - min) + min;
+        }
+
+		function updateMain( deltaTime, elapsedTime ) {
+
+            let tmpTrans = new Ammo.btTransform()
+            let tmpPos = new Vector3()
+            let tmpQuat = new THREE.Quaternion();
+            let ammoTmpPos = new Ammo.btVector3();
+            let ammoTmpQuat = new Ammo.btQuaternion();
+            let ms;
+
+            // Mouse control
+            if(mouse_did_move){
+                ball.position.set(mouse_pos_3d.x,mouse_pos_3d.y+(ballRadius),mouse_pos_3d.z)
+                ball.getWorldPosition(tmpPos)
+                ball.getWorldQuaternion(tmpQuat)
+                ms = ball.userData.physicsBody.getMotionState()
+                if(ms){
+                    ammoTmpPos.setValue(tmpPos.x,tmpPos.y,tmpPos.z)
+                    ammoTmpQuat.setValue(tmpQuat.x,tmpQuat.y,tmpQuat.z,tmpQuat.w)
+                    tmpTrans.setIdentity()
+                    tmpTrans.setOrigin(ammoTmpPos)
+                    tmpTrans.setRotation(ammoTmpQuat)
+                    ms.setWorldTransform(tmpTrans)
+                }
+            }
+            let bp2p = ballPlayer2.position.clone()
+            let start_x = 6;
+            let start_y = -3;
+            let start_z = 0;
+            let amplitude = .5;
+            let x = elapsedTime;
+            let frequency = .5;//.5 + .1 * Math.sin(x/1);
+            bp2p.x = start_x + amplitude * Math.sin(x/3)
+            bp2p.y = start_y + amplitude * Math.sin(x/frequency)
+            bp2p.z = start_z + amplitude * Math.cos(x/frequency)
+
+            ballPlayer2.position.set(bp2p.x,bp2p.y,bp2p.z)
+            ballPlayer2.getWorldPosition(tmpPos)
+            ms = ballPlayer2.userData.physicsBody.getMotionState()
+            if(ms){
+                ammoTmpPos.setValue(tmpPos.x,tmpPos.y,tmpPos.z)
+                tmpTrans.setIdentity()
+                tmpTrans.setOrigin(ammoTmpPos)
+                ms.setWorldTransform(tmpTrans)
+            }
+
+            // move the proxy ball (since the real anchor needs to be offset)
+            let bp2proxypos = ballPlayer2.position.clone()
+            bp2proxypos.x -= 6;
+            bp2proxypos.y += 9 + (ballRadius * 2);
+
+            ballPlayer2Proxy.position.set(bp2proxypos.x,bp2proxypos.y,bp2proxypos.z)
+            ballPlayer2Proxy.getWorldPosition(tmpPos)
+            ms = ballPlayer2Proxy.userData.physicsBody.getMotionState()
+            if(ms){
+                ammoTmpPos.setValue(tmpPos.x,tmpPos.y,tmpPos.z)
+                tmpTrans.setIdentity()
+                tmpTrans.setOrigin(ammoTmpPos)
+                ms.setWorldTransform(tmpTrans)
+            }
+
+			// Step world
+			physicsWorld.stepSimulation( deltaTime, 10 );
+
+			// Update rope
+			const softBody = rope.userData.physicsBody;
+			const ropePositions = rope.geometry.attributes.position.array;
+			const numVerts = ropePositions.length / 3;
+			const nodes = softBody.get_m_nodes();
+			let indexFloat = 0;
+            ropePoints = []; // clear and repopulate
+
+			for ( let i = 0; i < numVerts; i ++ ) {
+
+				const node = nodes.at( i );
+				const nodePos = node.get_m_x();
+				ropePositions[ indexFloat ++ ] = nodePos.x();
+				ropePositions[ indexFloat ++ ] = nodePos.y();
+				ropePositions[ indexFloat ++ ] = nodePos.z();
+                ropePoints[i] = new THREE.Vector3(nodePos.x(),nodePos.y(),nodePos.z());
+
+			}
+
+			rope.geometry.attributes.position.needsUpdate = true;
+
+			// Update tube mesh
+            let geo_next = regenerateTubeGeometry()
+            updateTubeGroup(geo_next)
+
+            // Update the lights
+            updateLights()
+		}
+
+        let scoredSinceLastKickoff = false;
+
+		function updateLights(){
+            if(current_light_color === PURPLE_HEX){
+                lights[0].intensity = 1;
+                lights[3].intensity = 0;
+            }else{
+                lights[3].intensity = 1;
+                lights[0].intensity = 0;
+            }
+
+            lightIndex = (lightIndex+(dir*speed));
+            if (lightIndex >= 100){
+                //dir = -1;
+                speed = 0;
+                lightIndex = 100;
+                lights[0].intensity = 0;
+                lights[3].intensity = 0;
+
+                if(!scoredSinceLastKickoff){
+                    scoredSinceLastKickoff = true
+                    player1Score++;
+                    currentStreak = 0;
+                    updateScores()
+                }
+            }
+            else if (lightIndex <= 0){
+                //dir = 1;
+                speed = 0;
+                lightIndex = 0;
+                lights[0].intensity = 0;
+                lights[3].intensity = 0;
+
+                if(!scoredSinceLastKickoff){
+                    scoredSinceLastKickoff = true
+                    player2Score++;
+                    currentStreak = 0;
+                    updateScores()
+                }
+            }
+
+            const pos = tube_curve.getPoint(lightIndex/100);
+
+            lights[0].position.set(pos.x, pos.y, pos.z);
+            lights[3].position.set(pos.x, pos.y, pos.z);
+
+            // move handle lights
+            const posPlayer1 = tube_curve.getPoint(0);
+            lights[1].position.set(posPlayer1.x, posPlayer1.y, posPlayer1.z);
+
+            const posPlayer2 = ropePoints[ropePoints.length-1];
+            lights[2].position.set(posPlayer2.x, posPlayer2.y, posPlayer2.z);
+        }
+
+        /* respond to player input */
+        function onInput(){
+            let was_turn = dir;
+            dir = dir*-1; //switch direction
+            // switch color
+            current_light_color = current_light_color === PURPLE_HEX ? TEAL_HEX : PURPLE_HEX;
+            const endZone = 30;
+            if (speed == 0){
+                scoredSinceLastKickoff = false;
+                speed = .5;
+            }
+            else{
+                if( (lightIndex <= endZone) || ((100-lightIndex) <= endZone) ){
+                    speed = speed+0.01;
+                    currentStreak++;
+                    if(currentStreak > bestStreak){
+                        bestStreak = currentStreak
+                    }
+                }else{
+                    speed = 0;
+                    if(was_turn === 1){
+                        player2Score++
+                        lightIndex = 100;
+                    }else{
+                        player1Score++
+                        lightIndex = 0;
+                    }
+                    currentStreak = 0;
+                }
+            }
+            updateScores();
+        }
+        updateScores();
+
+        function updateScores(){
+            document.getElementById("score").innerHTML = "Player1: "+player1Score+ " | Player2: "+player2Score+ " | Current Streak: "+currentStreak+ " | Best Streak"+bestStreak;
+        }
+        </script>
+
+	</body>
+</html>
