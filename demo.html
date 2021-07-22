@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>Three.js Geometry Browser</title>
+		<link rel="shortcut icon" href="../../files/favicon.ico" />
+		<link rel="stylesheet" type="text/css" href="../../files/main.css">
+		<style>
+			canvas {
+				display: block;
+				width: 100%;
+				height: 100%;
+			}
+
+			#newWindow {
+				display: block;
+				position: absolute;
+				bottom: 0.3em;
+				left: 0.5em;
+				color: #fff;
+			}
+		</style>
+	</head>
+	<body>
+
+		<script type="module">
+			import {
+                BufferGeometry,
+				Color,
+				Curve,
+				DoubleSide,
+				BackSide,
+				MeshLambertMaterial,
+				Float32BufferAttribute,
+				FontLoader,
+				Group,
+				LineSegments,
+				LineBasicMaterial,
+				Mesh,
+				MeshPhongMaterial,
+				PerspectiveCamera,
+				PointLight,
+				Scene,
+				Shape,
+				TubeGeometry,
+				Vector2,
+				Vector3,
+				WireframeGeometry,
+				WebGLRenderer
+			} from '../../build/three.module.js';
+
+			import { GUI } from '../../examples/jsm/libs/dat.gui.module.js';
+			import { OrbitControls } from '../../examples/jsm/controls/OrbitControls.js';
+
+			const twoPi = Math.PI * 2;
+
+			class CustomSinCurve extends Curve {
+
+				constructor( scale = 1 ) {
+
+					super();
+
+					this.scale = scale;
+
+				}
+
+				getPoint( t, optionalTarget = new Vector3() ) {
+
+					const tx = t * 3 - 1.5;
+					const ty = Math.sin( 2 * Math.PI * t );
+					const tz = 0;
+
+					return optionalTarget.set( tx, ty, tz ).multiplyScalar( this.scale );
+
+				}
+
+			}
+
+			function updateGroupGeometry( mesh, geometry ) {
+
+				mesh.children[ 0 ].geometry.dispose();
+				mesh.children[ 1 ].geometry.dispose();
+
+				mesh.children[ 0 ].geometry = new WireframeGeometry( geometry );
+				mesh.children[ 1 ].geometry = geometry;
+
+				// these do not update nicely together if shared
+
+			}
+
+			const x = 0, y = 0;
+
+			const guis = {
+
+				TubeGeometry: function ( mesh ) {
+
+					const data = {
+						segments: 20,
+						radius: 2,
+						radialSegments: 8
+					};
+
+					const path = new CustomSinCurve( 10 );
+					tubePath = path;
+
+					function generateGeometry() {
+
+						updateGroupGeometry( mesh,
+							new TubeGeometry( path, data.segments, data.radius, data.radialSegments, false )
+						);
+
+					}
+
+					const folder = gui.addFolder( 'THREE.TubeGeometry' );
+
+					folder.add( data, 'segments', 1, 100 ).step( 1 ).onChange( generateGeometry );
+					folder.add( data, 'radius', 1, 10 ).onChange( generateGeometry );
+					folder.add( data, 'radialSegments', 1, 20 ).step( 1 ).onChange( generateGeometry );
+
+					generateGeometry();
+
+				}
+
+			};
+
+            var tubePath;
+			var lightIndex = 0;
+			var dir = 1;
+			var speed = 1;
+
+			function updateLight(){
+				lightIndex = (lightIndex+(dir*speed));
+				if (lightIndex >= 100){
+					//dir = -1;
+					speed = 0;
+					lightIndex = 100;
+				}
+				else if (lightIndex <= 0){
+					//dir = 1;
+					speed = 0;
+					lightIndex = 0;
+				}
+
+				const pos = tubePath.getPoint(lightIndex/100);
+                if(current_light_color === PURPLE_HEX){
+                    lights[0].intensity = 5;
+                    lights[3].intensity = 0;
+                }else{
+                    lights[3].intensity = 5;
+                    lights[0].intensity = 0;
+                }
+				lights[0].position.set(pos.x, pos.y, pos.z);
+                lights[3].position.set(pos.x, pos.y, pos.z);
+			}
+
+            function updateTube(){
+
+            }
+
+			const gui = new GUI();
+
+			const scene = new Scene();
+			scene.background = new Color( 0x444444 );
+
+			const camera = new PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 50 );
+			camera.position.z = 30;
+
+			const renderer = new WebGLRenderer( { antialias: true } );
+			renderer.setPixelRatio( window.devicePixelRatio );
+			renderer.setSize( window.innerWidth, window.innerHeight );
+			document.body.appendChild( renderer.domElement );
+
+			const orbit = new OrbitControls( camera, renderer.domElement );
+			orbit.enableZoom = false;
+
+			const group = new Group();
+
+			const geometry = new BufferGeometry();
+			geometry.setAttribute( 'position', new Float32BufferAttribute( [], 3 ) );
+
+			const lineMaterial = new LineBasicMaterial( { color: 0xffffff, transparent: true, opacity: 0.25 } );
+			const meshMaterial = new MeshLambertMaterial( { color: 0xffffff, emissive: 0x111111, transparent:true,side:BackSide, flatShading: false, opacity:1 } );
+			//const meshMaterial = new MeshPhongMaterial( { color: 0xffffff, emissive: 0x111111, transparent:true, flatShading: false, opacity:1 } );
+
+			group.add( new LineSegments( geometry, lineMaterial ) );
+			group.add( new Mesh( geometry, meshMaterial ) );
+
+			const options = guis['TubeGeometry']();
+
+			scene.add( group );
+
+			const lights = [];
+
+
+            const AMBER_HEX = 0xfce803;
+            const TEAL_HEX = 0x0af3ff;
+            const PURPLE_HEX = 0x9b42f5
+            let current_light_color = PURPLE_HEX;
+
+            // player light
+			lights[ 0 ] = new PointLight(PURPLE_HEX, 5, 5, 2 );
+
+            // amber goal lights
+			lights[ 1 ] = new PointLight( AMBER_HEX, 3, 10,2 );
+			lights[ 2 ] = new PointLight( AMBER_HEX, 3,10,2 );
+
+            lights[ 3 ] = new PointLight( TEAL_HEX, 5, 5, 2);
+
+			lights[ 0 ].position.set( 0, 200, 0 );
+			if(tubePath){
+				var pos = tubePath.getPoint(0);
+				lights[1].position.set(pos.x, pos.y, pos.z);
+
+				pos = tubePath.getPoint(1);
+				lights[2].position.set(pos.x, pos.y, pos.z);
+
+			}
+			scene.add( lights[ 0 ] );
+			scene.add( lights[ 1 ] );
+			scene.add( lights[ 2 ] );
+			scene.add( lights[ 3 ] );
+
+
+			function render() {
+				updateLight();
+                updateTube();
+				requestAnimationFrame( render );
+
+				if ( ! options.fixed ) {
+
+					group.rotation.x += 0.00;
+					group.rotation.y += 0.00;
+
+				}
+
+				renderer.render( scene, camera );
+
+			}
+
+			window.addEventListener( 'resize', function () {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}, false );
+
+            /* respond to player input */
+            function onInput(){
+                dir = dir*-1; //switch direction
+                // switch color
+                current_light_color = current_light_color === PURPLE_HEX ? TEAL_HEX : PURPLE_HEX;
+				if (speed == 0){
+					speed = .5;
+				}
+				else{
+					const endZone = 30;
+					if( (lightIndex <= endZone) || ((100-lightIndex) <= endZone) ){
+						speed = speed+0.25;
+					}
+				}
+            }
+            window.addEventListener('click', onInput);
+            window.addEventListener('touchstart', onInput);
+
+            let mouse = {x:0,y:0}
+            function onMouseMove(e){
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+                var vector = new Vector3(mouse.x, mouse.y, 0.5);
+                vector.unproject( camera );
+                var dir = vector.sub( camera.position ).normalize();
+                var distance = - camera.position.z / dir.z;
+                var pos = camera.position.clone().add( dir.multiplyScalar( distance ) );
+
+            }
+            window.addEventListener('mousemove', onMouseMove);
+
+			render();
+
+		</script>
+	</body>
+</html>

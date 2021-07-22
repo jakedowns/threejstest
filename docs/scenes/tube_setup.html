@@ -74,7 +74,7 @@
 			import { ParametricGeometries } from '../../examples/jsm/geometries/ParametricGeometries.js';
 
 			const twoPi = Math.PI * 2;
-			
+
 			class CustomSinCurve extends Curve {
 
 				constructor( scale = 1 ) {
@@ -122,6 +122,8 @@
 			heartShape.bezierCurveTo( x + 12, y + 15.4, x + 16, y + 11, x + 16, y + 7 );
 			heartShape.bezierCurveTo( x + 16, y + 7, x + 16, y, x + 10, y );
 			heartShape.bezierCurveTo( x + 7, y, x + 5, y + 5, x + 5, y + 5 );
+
+			var tubePath;
 
 			const guis = {
 
@@ -776,7 +778,7 @@
 				}
 
 			};
-			var tubePath;
+
 			var lightIndex = 0;
 			var dir = 1;
 			var speed = 1;
@@ -793,7 +795,7 @@
 					speed = 0;
 					lightIndex = 0;
 				}
-				
+
 				const pos = tubePath.getPoint(lightIndex/100);
 				lights[0].position.set(pos.x, pos.y, pos.z);
 				sphere.position.set(pos.x, pos.y, pos.z);
@@ -864,18 +866,20 @@
 			//scene.add(sphere);
 			const lights = [];
 			lights[ 0 ] = new PointLight( 0x9b42f5, 5, 5, 2 );
-			
+
 
 			lights[ 1 ] = new PointLight( 0xfce803, 3, 10,2 );
 			lights[ 2 ] = new PointLight( 0xfce803, 3,10,2 );
 
 			lights[ 0 ].position.set( 0, 200, 0 );
-			var pos = tubePath.getPoint(0);
-			lights[1].position.set(pos.x, pos.y, pos.z);
-			
-			pos = tubePath.getPoint(1);
-			lights[2].position.set(pos.x, pos.y, pos.z);
+			if(tubePath){
+				var pos = tubePath.getPoint(0);
+				lights[1].position.set(pos.x, pos.y, pos.z);
 
+				pos = tubePath.getPoint(1);
+				lights[2].position.set(pos.x, pos.y, pos.z);
+
+			}
 			scene.add( lights[ 0 ] );
 			scene.add( lights[ 1 ] );
 			scene.add( lights[ 2 ] );
